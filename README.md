@@ -8,25 +8,33 @@ machine's screen, mouse, and keyboard.
 
 - `client.py` — the GUI client; run it on the controlling machine.
 - `launch_client.sh` — starts the client with the bundled Python path.
+- `server.py` — runs on the machine being controlled (e.g. a Mac Mini).
 
-The server (`server.py`) runs on the machine being controlled and is not part of
-this repository.
+## Server
 
-## Requirements
-
-- Python 3.13 (`launch_client.sh` points at Homebrew's `/opt/homebrew/bin/python3.13`).
-- Pillow: `pip3 install Pillow`.
-
-## Run
+Run on the machine you want to control:
 
 ```bash
-./launch_client.sh
-# or
-python3 client.py
+pip3 install pynput mss Pillow
+python3 server.py --password secret
+```
+
+Flags: `--host` (default `0.0.0.0`), `--port` (default `5901`), `--password`.
+On macOS, grant the running terminal Accessibility and Screen Recording
+permissions in System Settings → Privacy & Security.
+
+## Client
+
+```bash
+pip3 install Pillow
+./launch_client.sh   # or: python3 client.py
 ```
 
 Enter the server's IP, port (default `5901`), and password, then click **Connect**.
 **Scan LAN** finds a running server by UDP broadcast.
+
+`launch_client.sh` points at Homebrew's `/opt/homebrew/bin/python3.13`; edit it if
+your Python lives elsewhere.
 
 ## Modes
 
