@@ -1,0 +1,2 @@
+# Client (the controlling machine)
+Pillow>=9.0

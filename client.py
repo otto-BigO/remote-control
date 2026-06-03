@@ -22,6 +22,7 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
+__version__      = "1.0.0"
 PROTOCOL_VERSION = "2"
 DISCOVERY_PORT   = 5902
 DEFAULT_PORT     = 5901
@@ -358,7 +359,7 @@ class App(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Remote Control")
+        self.title(f"Remote Control v{__version__}")
         self.configure(bg=BG); self.minsize(820, 540)
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         w, h = 1020, 680

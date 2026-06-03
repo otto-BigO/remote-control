@@ -1,32 +1,49 @@
 # Remote Control
 
-A LAN remote-desktop client for macOS, written in Python and Tkinter. It connects
-to a companion `server.py` running on the Mac you want to control and mirrors that
-machine's screen, mouse, and keyboard.
+A LAN remote-desktop tool written in Python and Tkinter. A GUI **client** connects
+to a **server** running on another machine and mirrors that machine's screen,
+mouse, and keyboard. The client runs on macOS; the server runs on macOS or
+Linux/X11.
 
 ## Files
 
-- `client.py` — the GUI client; run it on the controlling machine.
-- `launch_client.sh` — starts the client with the bundled Python path.
-- `server.py` — runs on the machine being controlled (e.g. a Mac Mini).
+| File | Purpose |
+|------|---------|
+| `client.py` | GUI client (run on the controlling machine) |
+| `server.py` | Server (run on the machine being controlled) |
+| `launch_client.sh` | Launches the client with a set Python path |
+| `deploy_server.sh` | Copies `server.py` to a target host and restarts it |
+| `requirements-client.txt` / `requirements-server.txt` | Dependencies |
 
 ## Server
 
 Run on the machine you want to control:
 
 ```bash
-pip3 install pynput mss Pillow
+pip3 install -r requirements-server.txt
 python3 server.py --password secret
 ```
 
-Flags: `--host` (default `0.0.0.0`), `--port` (default `5901`), `--password`.
-On macOS, grant the running terminal Accessibility and Screen Recording
-permissions in System Settings → Privacy & Security.
+Flags: `--host` (default `0.0.0.0`), `--port` (default `5901`), `--password`,
+`--version`.
+
+- **macOS:** grant the running terminal Accessibility and Screen Recording
+  permissions in System Settings → Privacy & Security.
+- **Linux/X11:** a `DISPLAY` must be set; for clipboard sync install one of
+  `xclip`, `xsel`, or `wl-clipboard`.
+
+Files sent from the client are saved to `~/remote_control_received/`.
+
+To deploy from the client machine in one step:
+
+```bash
+./deploy_server.sh otto@192.168.0.170 --password secret
+```
 
 ## Client
 
 ```bash
-pip3 install Pillow
+pip3 install -r requirements-client.txt
 ./launch_client.sh   # or: python3 client.py
 ```
 
