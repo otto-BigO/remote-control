@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+.rc_profiles.json
+
+# archived/abandoned experiments kept locally, not published
+archive/
