@@ -14,7 +14,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, simpledialog, filedialog
 import threading, socket, struct, json, hashlib
-import io, base64, time, subprocess, platform, os, uuid
+import io, base64, time, subprocess, platform, os, uuid, re, webbrowser
+import urllib.request
 from pathlib import Path
 
 try:
@@ -22,7 +23,8 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.1.0"
+__version__      = "1.2.0"
+GITHUB_REPO      = "otto-BigO/remote-control"
 PROTOCOL_VERSION = "2"
 DISCOVERY_PORT   = 5902
 DEFAULT_PORT     = 5901
@@ -97,6 +99,26 @@ def scan_lan(timeout=2.5):
         try: u.close()
         except: pass
     return out
+
+# ── Update check ───────────────────────────────────────────────────────────
+
+def _parse_ver(s):
+    nums = re.findall(r"\d+", s or "")
+    return tuple(int(n) for n in nums[:3]) if nums else (0,)
+
+def fetch_latest_release(timeout=6):
+    """Return (tag, html_url, body) for the newest GitHub release, or None."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "RemoteControl-UpdateCheck",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d = json.loads(r.read().decode())
+        return d.get("tag_name"), d.get("html_url"), (d.get("body") or "")
+    except Exception:
+        return None
 
 # ── Clipboard ─────────────────────────────────────────────────────────────
 
@@ -437,6 +459,8 @@ class App(tk.Tk):
         self._build_home_ui()
         self._apply_mode(self.MODE_REMOTE, init=True)
         self._placeholder("Not connected")
+
+        self.after(1500, self._check_updates_async)   # quiet GitHub update check
 
     # ══════════════════════════════════════════════════════════════════════
     # Mode switching
@@ -1395,6 +1419,53 @@ class App(tk.Tk):
         self.after(0, lambda: self._file_lbl.config(text=f"✓ Saved: {name}"))
 
     # ══════════════════════════════════════════════════════════════════════
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Update check
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _check_updates_async(self, manual=False):
+        def worker():
+            res = fetch_latest_release()
+            self.after(0, lambda: self._on_update_result(res, manual))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_update_result(self, res, manual):
+        if not res:
+            if manual:
+                messagebox.showinfo("Updates", "Couldn't reach GitHub to check for updates.")
+            return
+        tag, url, body = res
+        if _parse_ver(tag) > _parse_ver(__version__):
+            self._show_update_dialog(tag, url, body)
+        elif manual:
+            messagebox.showinfo("Updates", f"You're on the latest version (v{__version__}).")
+
+    def _show_update_dialog(self, tag, url, body):
+        win = tk.Toplevel(self); win.title("Update available")
+        win.configure(bg=BG); win.transient(self); win.resizable(False, False)
+        win.attributes("-topmost", True)
+        pad = tk.Frame(win, bg=BG); pad.pack(fill="both", expand=True, padx=20, pady=18)
+        lbl(pad, "Update available", 17, bold=True).pack(anchor="w")
+        lbl(pad, f"{tag} is available  —  you have v{__version__}", 12, TEXT2).pack(
+            anchor="w", pady=(4, 10))
+
+        box = tk.Frame(pad, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER)
+        box.pack(fill="both", expand=True)
+        txt = tk.Text(box, bg=SURFACE, fg=TEXT, font=(FONT, 11), relief="flat", bd=0,
+                      wrap="word", height=11, width=54, padx=12, pady=10,
+                      highlightthickness=0, insertbackground=TEXT)
+        txt.insert("1.0", (body or "").strip() or "No release notes.")
+        txt.config(state="disabled"); txt.pack(fill="both", expand=True)
+
+        row = tk.Frame(pad, bg=BG); row.pack(fill="x", pady=(14, 0))
+        btn(row, "Download", lambda: (webbrowser.open(url), win.destroy())).pack(side="right")
+        sbtn(row, "Later", win.destroy).pack(side="right", padx=(0, 8))
+
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_reqwidth()) // 2
+        win.geometry(f"+{max(0, x)}+{self.winfo_rooty() + 90}")
+        win.lift(); win.focus_force()
 
     def destroy(self):
         self._disc(); super().destroy()

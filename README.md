@@ -77,6 +77,12 @@ Enter the server's IP, port, and password, then click **Connect** — or **Scan
 LAN** to find a server by UDP broadcast. `launch_client.sh` points at
 `/opt/homebrew/bin/python3.13`; edit it if your Python is elsewhere.
 
+## Updates
+
+On launch the client quietly checks GitHub for a newer release. If one exists it
+shows the version and notes with a **Download** button; if you're current, it
+says nothing.
+
 ## Modes
 
 - **Remote** — a live screen preview you click, scroll, and type into.

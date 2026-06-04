@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+- The client checks GitHub for a newer release on startup. If one exists it
+  shows the version and release notes with a **Download** button that opens the
+  release page; otherwise it stays silent. Requires the repo to be public.
+
 ## 1.1.0
 
 Packaged, no-install builds so the app runs with a double-click.
