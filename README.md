@@ -1,9 +1,15 @@
 # Remote Control
 
-A LAN remote-desktop tool written in Python and Tkinter. A GUI **client** connects
-to a **server** running on another machine and mirrors that machine's screen,
-mouse, and keyboard. The client runs on macOS; the server runs on macOS or
-Linux/X11.
+A LAN remote-desktop tool in Python and Tkinter. A GUI **client** connects to a
+**server** on another machine and mirrors its screen, mouse, and keyboard. The
+client runs on macOS; the server runs on macOS or Linux/X11.
+
+## Requirements
+
+- Python 3.9+ with Tkinter (bundled with the python.org and Homebrew builds).
+- Client: `Pillow`.
+- Server: `pynput`, `mss`, `Pillow` — plus a clipboard tool on Linux
+  (`xclip`, `xsel`, or `wl-clipboard`).
 
 ## Files
 
@@ -12,7 +18,7 @@ Linux/X11.
 | `client.py` | GUI client (run on the controlling machine) |
 | `server.py` | Server (run on the machine being controlled) |
 | `launch_client.sh` | Launches the client with a set Python path |
-| `deploy_server.sh` | Copies `server.py` to a target host and restarts it |
+| `deploy_server.sh` | Copies `server.py` to a host and restarts it |
 | `requirements-client.txt` / `requirements-server.txt` | Dependencies |
 
 ## Server
@@ -27,14 +33,13 @@ python3 server.py --password secret
 Flags: `--host` (default `0.0.0.0`), `--port` (default `5901`), `--password`,
 `--version`.
 
-- **macOS:** grant the running terminal Accessibility and Screen Recording
-  permissions in System Settings → Privacy & Security.
-- **Linux/X11:** a `DISPLAY` must be set; for clipboard sync install one of
-  `xclip`, `xsel`, or `wl-clipboard`.
+- **macOS:** grant the terminal Accessibility and Screen Recording permissions
+  in System Settings → Privacy & Security.
+- **Linux/X11:** `DISPLAY` must be set; install a clipboard tool for sync.
 
-Files sent from the client are saved to `~/remote_control_received/`.
+Files sent from the client land in `~/remote_control_received/`.
 
-To deploy from the client machine in one step:
+Deploy and restart from the client machine in one step:
 
 ```bash
 ./deploy_server.sh otto@192.168.0.170 --password secret
@@ -47,36 +52,45 @@ pip3 install -r requirements-client.txt
 ./launch_client.sh   # or: python3 client.py
 ```
 
-Enter the server's IP, port (default `5901`), and password, then click **Connect**.
-**Scan LAN** finds a running server by UDP broadcast.
-
-`launch_client.sh` points at Homebrew's `/opt/homebrew/bin/python3.13`; edit it if
-your Python lives elsewhere.
+Enter the server's IP, port, and password, then click **Connect** — or **Scan
+LAN** to find a server by UDP broadcast. `launch_client.sh` points at
+`/opt/homebrew/bin/python3.13`; edit it if your Python is elsewhere.
 
 ## Modes
 
 - **Remote** — a live screen preview you click, scroll, and type into.
-- **Home** — a small floating bar. **Grab Input** mirrors your mouse and keyboard
-  to the other Mac through a transparent overlay; press `Esc` to release.
+- **Home** — a floating bar. **Grab Input** mirrors your mouse and keyboard to
+  the controlled machine through a transparent overlay; press `Esc` to release.
 
 ## Features
 
-- Adaptive frame rate with delta-frame updates.
-- Multi-monitor switching.
-- Zoom (`Ctrl`+scroll) and pan (middle-drag).
-- Full-screen preview (double-click).
+- Live screen streaming with adaptive frame rate.
+- Multi-monitor enumeration and switching.
+- Zoom (`Ctrl`+scroll) and pan (middle-drag); full-screen preview.
 - Clipboard push, pull, and auto-sync.
-- File transfer to the remote machine.
+- File transfer to the controlled machine.
 - Saved connection profiles.
 
 ## Shortcuts
 
-- `⌘K` — connect / disconnect
-- `⌘L` — scan the LAN
-- Double-click the preview — full screen
-- `Esc` — release input / exit full screen
+| Key | Action |
+|-----|--------|
+| `⌘K` | Connect / disconnect |
+| `⌘L` | Scan the LAN |
+| Double-click preview | Full screen |
+| `Esc` | Release input / exit full screen |
 
 ## Protocol
 
-Length-prefixed JSON over TCP (default port `5901`), with SHA-256
-challenge-response authentication. UDP broadcast on port `5902` for discovery.
+Length-prefixed JSON over TCP (default port `5901`) with SHA-256
+challenge-response auth. UDP broadcast on port `5902` for discovery.
+
+## Security
+
+The server grants full mouse, keyboard, and screen access to anyone who
+connects with the password. Run it on trusted LANs only, set a strong
+`--password`, and don't expose port `5901` to the internet.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
