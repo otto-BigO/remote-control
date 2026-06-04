@@ -9,7 +9,11 @@ pip3 install --user pyinstaller 2>/dev/null \
     || pip3 install --user --break-system-packages pyinstaller
 export PATH="$HOME/.local/bin:$PATH"
 
-pyinstaller --noconfirm --onefile --name rc-server server.py
+# macOS re-scans a one-file binary on every launch (slow), so build a folder
+# there; Linux one-file binaries start fast.
+MODE="--onefile"
+[ "$(uname)" = "Darwin" ] && MODE="--onedir"
+pyinstaller --noconfirm $MODE --name rc-server server.py
 
 echo "✓ Built: dist/rc-server"
 echo "  Put an rc_config.json next to it (see rc_config.example.json), then run it."

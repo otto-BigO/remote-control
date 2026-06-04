@@ -35,7 +35,7 @@ import platform
 import shutil
 from pathlib import Path
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 try:
     from pynput import keyboard
@@ -57,6 +57,7 @@ PROTOCOL_VERSION = "2"
 DISCOVERY_PORT   = 5902
 TCP_PORT_DEFAULT = 5901
 IS_MAC           = platform.system() == "Darwin"
+IS_WIN           = platform.system() == "Windows"
 MAX_MSG          = 60 * 1024 * 1024            # 60 MB frame/chunk ceiling
 RECV_DIR         = Path.home() / "remote_control_received"
 
@@ -64,22 +65,17 @@ mouse_ctrl = MouseController()
 kb_ctrl    = KeyboardController()
 
 # ── Key / button maps ───────────────────────────────────────────────────────
-SPECIAL_KEYS = {
-    "alt": Key.alt, "alt_l": Key.alt_l, "alt_r": Key.alt_r,
-    "backspace": Key.backspace, "caps_lock": Key.caps_lock,
-    "cmd": Key.cmd, "cmd_l": Key.cmd_l, "cmd_r": Key.cmd_r,
-    "ctrl": Key.ctrl, "ctrl_l": Key.ctrl_l, "ctrl_r": Key.ctrl_r,
-    "delete": Key.delete, "down": Key.down, "end": Key.end,
-    "enter": Key.enter, "esc": Key.esc,
-    "f1": Key.f1, "f2": Key.f2, "f3": Key.f3, "f4": Key.f4,
-    "f5": Key.f5, "f6": Key.f6, "f7": Key.f7, "f8": Key.f8,
-    "f9": Key.f9, "f10": Key.f10, "f11": Key.f11, "f12": Key.f12,
-    "home": Key.home, "insert": Key.insert,
-    "left": Key.left, "right": Key.right, "up": Key.up, "down": Key.down,
-    "page_down": Key.page_down, "page_up": Key.page_up,
-    "shift": Key.shift, "shift_l": Key.shift_l, "shift_r": Key.shift_r,
-    "space": Key.space, "tab": Key.tab,
-}
+# pynput's Key enum differs by platform (e.g. macOS has no Key.insert), so build
+# the map from whatever the current platform actually provides.
+_KEY_NAMES = [
+    "alt", "alt_l", "alt_r", "backspace", "caps_lock",
+    "cmd", "cmd_l", "cmd_r", "ctrl", "ctrl_l", "ctrl_r",
+    "delete", "down", "end", "enter", "esc",
+    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+    "home", "insert", "left", "right", "up", "page_down", "page_up",
+    "shift", "shift_l", "shift_r", "space", "tab",
+]
+SPECIAL_KEYS = {n: getattr(Key, n) for n in _KEY_NAMES if hasattr(Key, n)}
 MOUSE_BUTTONS = {"left": Button.left, "right": Button.right, "middle": Button.middle}
 
 
@@ -159,6 +155,8 @@ def capture_screenshot(monitor_id, scale=0.35, quality=55):
 def _clip_tools():
     if IS_MAC:
         return (["pbpaste"], ["pbcopy"])
+    if IS_WIN:
+        return (["powershell", "-NoProfile", "-Command", "Get-Clipboard"], ["clip"])
     if shutil.which("xclip"):
         return (["xclip", "-selection", "clipboard", "-o"],
                 ["xclip", "-selection", "clipboard"])

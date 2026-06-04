@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+- **macOS server build.** The server now ships as a prebuilt macOS bundle
+  (built as a folder so it starts fast). Needs Accessibility and Screen
+  Recording permissions.
+- **Windows-ready server.** Added Windows clipboard support (PowerShell /
+  `clip`) and a `build_server.bat` to produce `rc-server.exe` on Windows. No
+  prebuilt `.exe` (PyInstaller can't cross-compile).
+- **Cross-platform key-map fix.** `pynput`'s `Key` enum differs by OS (macOS has
+  no `Key.insert`); the key map is now built from whatever the platform
+  provides, instead of crashing on startup.
+- `build_server.sh` builds a folder on macOS and a single binary on Linux.
+
 ## 1.2.0
 
 - The client checks GitHub for a newer release on startup. If one exists it

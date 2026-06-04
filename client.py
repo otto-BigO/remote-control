@@ -23,7 +23,7 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.2.0"
+__version__      = "1.3.0"
 GITHUB_REPO      = "otto-BigO/remote-control"
 PROTOCOL_VERSION = "2"
 DISCOVERY_PORT   = 5902

@@ -2,27 +2,33 @@
 
 A LAN remote-desktop tool in Python and Tkinter. A GUI **client** connects to a
 **server** on another machine and mirrors its screen, mouse, and keyboard. The
-client runs on macOS; the server runs on macOS or Linux/X11.
+client runs on macOS; the server runs on macOS, Linux/X11, or Windows.
 
 ## Download (no Python needed)
 
-Prebuilt, double-click builds are on the
-[Releases](https://github.com/otto-BigO/remote-control/releases) page.
+Prebuilt builds are on the
+[Releases](https://github.com/otto-BigO/remote-control/releases) page. Each
+server build reads an `rc_config.json` placed next to it (copy
+`rc_config.example.json` and set a password) — no arguments needed.
 
 **Client (macOS):** download `Remote-Control-macOS.zip`, unzip, and open
 `Remote Control.app`. It's unsigned, so the first time, right-click → **Open**
 to get past Gatekeeper.
 
-**Server (Linux):** download `rc-server`, put an `rc_config.json` next to it
-(copy `rc_config.example.json` and set a password), then:
+**Server (Linux):** download `rc-server`, then:
 
 ```bash
 chmod +x rc-server
 ./rc-server
 ```
 
-It reads the config and starts — no arguments, no Python install. To run from
-source instead, follow the sections below.
+**Server (macOS):** download `rc-server-macos-arm64.zip`, unzip, and run
+`rc-server` inside the folder. Grant it Accessibility and Screen Recording in
+System Settings → Privacy & Security.
+
+**Server (Windows):** no prebuilt `.exe` (it can't be cross-compiled). Run
+`build_server.bat` on a Windows machine with Python installed to produce
+`dist\rc-server.exe`.
 
 ## Requirements
 
