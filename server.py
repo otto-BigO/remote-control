@@ -35,7 +35,7 @@ import platform
 import shutil
 from pathlib import Path
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 try:
     from pynput import keyboard
@@ -477,11 +477,41 @@ def run_server(host, port, password):
         srv.close()
 
 
+def _app_dir():
+    """Directory of the running program (works for a PyInstaller binary too)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+def load_config(explicit=None):
+    """Read rc_config.json next to the program, then ~/.rc_config.json.
+    Lets a double-clicked binary start with no command-line args."""
+    paths = [Path(explicit)] if explicit else [
+        _app_dir() / "rc_config.json", Path.home() / ".rc_config.json"]
+    for path in paths:
+        try:
+            if path.exists():
+                return json.loads(path.read_text()), path
+        except Exception as e:
+            print(f"[!] Ignoring bad config {path}: {e}")
+    return {}, None
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Remote Control Server")
-    p.add_argument("--host",     default="0.0.0.0")
-    p.add_argument("--port",     type=int, default=TCP_PORT_DEFAULT)
+    p.add_argument("--host",     default=None)
+    p.add_argument("--port",     type=int, default=None)
     p.add_argument("--password", default=None)
+    p.add_argument("--config",   default=None, help="path to an rc_config.json")
     p.add_argument("--version",  action="version", version=f"%(prog)s {__version__}")
     args = p.parse_args()
-    run_server(args.host, args.port, args.password)
+
+    # Precedence: command-line flag > config file > built-in default.
+    cfg, cfg_path = load_config(args.config)
+    if cfg_path:
+        print(f"[*] Loaded config: {cfg_path}")
+    host     = args.host or cfg.get("host") or "0.0.0.0"
+    port     = args.port or cfg.get("port") or TCP_PORT_DEFAULT
+    password = args.password if args.password is not None else cfg.get("password")
+
+    run_server(host, port, password)

@@ -22,7 +22,7 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.0.0"
+__version__      = "1.1.0"
 PROTOCOL_VERSION = "2"
 DISCOVERY_PORT   = 5902
 DEFAULT_PORT     = 5901

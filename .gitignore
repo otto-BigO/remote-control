@@ -5,3 +5,9 @@ __pycache__/
 
 # archived/abandoned experiments kept locally, not published
 archive/
+
+# build artifacts
+.build-venv/
+build/
+dist/
+*.spec

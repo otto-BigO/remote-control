@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0
+
+Packaged, no-install builds so the app runs with a double-click.
+
+- **macOS client** ships as a `.app` (built with PyInstaller); no Python or pip
+  needed on the machine that runs it.
+- **Server** ships as a single run-and-go binary. It reads an `rc_config.json`
+  placed next to it (`host` / `port` / `password`), so it starts with no
+  command-line arguments — double-click and go.
+- Command-line flags still win over the config file, which wins over defaults.
+- Added `build_client.sh`, `build_server.sh`, and `rc_config.example.json`.
+
+Prebuilt downloads are attached to the GitHub release.
+
 ## 1.0.0
 
 First release-ready version. The client had gained features the server never
