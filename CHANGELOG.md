@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.0
+
+Built-in auto-update, so the client and server update themselves with no manual
+download.
+
+- The packaged macOS client gets an **Update & Restart** button. It downloads
+  the new build, swaps it in place, and relaunches.
+- The packaged server checks on startup and self-updates to the newest release
+  before serving, then restarts. Use `--no-update` to skip it.
+- Config files (`rc_config.json`, `~/.rc_profiles.json`) are left untouched, so
+  settings and saved profiles survive every update.
+- A failed or interrupted update restores the previous version instead of
+  leaving a broken install.
+
 ## 1.3.0
 
 - **macOS server build.** The server now ships as a prebuilt macOS bundle
@@ -27,7 +41,7 @@ Packaged, no-install builds so the app runs with a double-click.
   needed on the machine that runs it.
 - **Server** ships as a single run-and-go binary. It reads an `rc_config.json`
   placed next to it (`host` / `port` / `password`), so it starts with no
-  command-line arguments — double-click and go.
+  command-line arguments. Double-click and go.
 - Command-line flags still win over the config file, which wins over defaults.
 - Added `build_client.sh`, `build_server.sh`, and `rc_config.example.json`.
 
@@ -38,7 +52,7 @@ Prebuilt downloads are attached to the GitHub release.
 First release-ready version. The client had gained features the server never
 implemented; this brings the two sides back into sync and hardens both.
 
-### Server — brought up to protocol parity
+### Server: brought up to protocol parity
 - Send `orig_width`/`orig_height` with every frame. The client uses these to
   map input coordinates; without them it assumed 1920×1080 and mis-placed
   clicks on any other resolution.
@@ -56,7 +70,7 @@ implemented; this brings the two sides back into sync and hardens both.
 - More reliable LAN IP detection; `--version` flag; per-session cleanup of open
   files and watcher threads on disconnect.
 
-### Client — bug fixes
+### Client: bug fixes
 - Connect and Scan no longer block the UI thread (the blocking work used to run
   on the main thread inside `after`, freezing the window).
 - Removed dead code in the disconnect handler.

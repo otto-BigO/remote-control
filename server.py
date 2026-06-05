@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote Control Server  –  run this on the machine you want to control.
+Remote Control Server. Run this on the machine you want to control.
 
 Works on macOS and Linux/X11.
 
@@ -33,9 +33,14 @@ import base64
 import subprocess
 import platform
 import shutil
+import re
+import tempfile
+import zipfile
+import urllib.request
 from pathlib import Path
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
+GITHUB_REPO = "otto-BigO/remote-control"
 
 try:
     from pynput import keyboard
@@ -428,6 +433,83 @@ def run_discovery_listener(tcp_port, stop_event):
     udp.close()
 
 
+# ── Self-update ─────────────────────────────────────────────────────────────
+
+def _parse_ver(s):
+    nums = re.findall(r"\d+", s or "")
+    return tuple(int(n) for n in nums[:3]) if nums else (0,)
+
+def _platform_asset():
+    """(asset_name, kind) for this OS. kind: 'bin' (replace file) or 'zip' (folder)."""
+    if IS_MAC:
+        return "rc-server-macos-arm64.zip", "zip"
+    if IS_WIN:
+        return "rc-server-windows.exe", "bin"
+    return "rc-server-linux-x86_64", "bin"
+
+def _fetch_release():
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json", "User-Agent": "rc-server-update"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        d = json.loads(r.read().decode())
+    assets = {a["name"]: a["browser_download_url"] for a in d.get("assets", [])}
+    return d.get("tag_name"), assets
+
+def _download(url, dest):
+    req = urllib.request.Request(url, headers={"User-Agent": "rc-server-update"})
+    with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as f:
+        shutil.copyfileobj(r, f)
+
+def self_update():
+    """Packaged builds only: if a newer release exists, download it, swap it in
+    place (keeping rc_config.json), and re-exec. Never returns if it updates.
+    On any problem it just returns and the server runs the current version."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        tag, assets = _fetch_release()
+    except Exception:
+        return                                    # offline / API issue: carry on
+    if not tag or _parse_ver(tag) <= _parse_ver(__version__):
+        return
+    if os.environ.get("RC_UPDATED") == tag:
+        return                                    # already tried this tag: no loops
+    name, kind = _platform_asset()
+    url = assets.get(name)
+    if not url:
+        return
+    print(f"[*] Update available: {tag} (have {__version__}). Downloading…")
+    try:
+        tmp = Path(tempfile.mkdtemp(prefix="rcupd_"))
+        blob = tmp / name
+        _download(url, blob)
+        exe = Path(sys.executable).resolve()
+        if kind == "bin":
+            backup = exe.with_name(exe.name + ".bak")
+            shutil.copyfile(exe, backup)
+            staged = tmp / "new"
+            shutil.copyfile(blob, staged); os.chmod(staged, 0o755)
+            os.replace(staged, exe)               # atomic on same filesystem
+        else:  # zip → onedir folder (macOS)
+            folder = exe.parent
+            with zipfile.ZipFile(blob) as z:
+                z.extractall(tmp / "x")
+            new_folder = tmp / "x" / "rc-server"
+            if not (new_folder / "rc-server").exists():
+                raise RuntimeError("unexpected archive layout")
+            backup = folder.with_name(folder.name + ".bak")
+            if backup.exists(): shutil.rmtree(backup, ignore_errors=True)
+            shutil.move(str(folder), str(backup))
+            shutil.move(str(new_folder), str(folder))
+            os.chmod(exe, 0o755)
+        os.environ["RC_UPDATED"] = tag
+        print(f"[*] Updated to {tag}. Restarting…")
+        os.execv(str(exe), [str(exe)] + sys.argv[1:])
+    except Exception as e:
+        print(f"[!] Update failed ({e}); running current version {__version__}.")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def _local_ip():
@@ -501,8 +583,13 @@ if __name__ == "__main__":
     p.add_argument("--port",     type=int, default=None)
     p.add_argument("--password", default=None)
     p.add_argument("--config",   default=None, help="path to an rc_config.json")
+    p.add_argument("--no-update", action="store_true", help="skip the self-update check")
     p.add_argument("--version",  action="version", version=f"%(prog)s {__version__}")
     args = p.parse_args()
+
+    # Self-update before serving (packaged builds only; re-execs if it updates).
+    if not args.no_update:
+        self_update()
 
     # Precedence: command-line flag > config file > built-in default.
     cfg, cfg_path = load_config(args.config)

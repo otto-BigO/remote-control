@@ -9,7 +9,7 @@ client runs on macOS; the server runs on macOS, Linux/X11, or Windows.
 Prebuilt builds are on the
 [Releases](https://github.com/otto-BigO/remote-control/releases) page. Each
 server build reads an `rc_config.json` placed next to it (copy
-`rc_config.example.json` and set a password) — no arguments needed.
+`rc_config.example.json` and set a password). No arguments needed.
 
 **Client (macOS):** download `Remote-Control-macOS.zip`, unzip, and open
 `Remote Control.app`. It's unsigned, so the first time, right-click → **Open**
@@ -34,7 +34,7 @@ System Settings → Privacy & Security.
 
 - Python 3.9+ with Tkinter (bundled with the python.org and Homebrew builds).
 - Client: `Pillow`.
-- Server: `pynput`, `mss`, `Pillow` — plus a clipboard tool on Linux
+- Server: `pynput`, `mss`, `Pillow`, plus a clipboard tool on Linux
   (`xclip`, `xsel`, or `wl-clipboard`).
 
 ## Files
@@ -79,7 +79,7 @@ pip3 install -r requirements-client.txt
 ./launch_client.sh   # or: python3 client.py
 ```
 
-Enter the server's IP, port, and password, then click **Connect** — or **Scan
+Enter the server's IP, port, and password, then click **Connect**, or **Scan
 LAN** to find a server by UDP broadcast. `launch_client.sh` points at
 `/opt/homebrew/bin/python3.13`; edit it if your Python is elsewhere.
 
@@ -91,8 +91,8 @@ says nothing.
 
 ## Modes
 
-- **Remote** — a live screen preview you click, scroll, and type into.
-- **Home** — a floating bar. **Grab Input** mirrors your mouse and keyboard to
+- **Remote**: a live screen preview you click, scroll, and type into.
+- **Home**: a floating bar. **Grab Input** mirrors your mouse and keyboard to
   the controlled machine through a transparent overlay; press `Esc` to release.
 
 ## Features
@@ -126,4 +126,4 @@ connects with the password. Run it on trusted LANs only, set a strong
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

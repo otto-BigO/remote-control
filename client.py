@@ -14,8 +14,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, simpledialog, filedialog
 import threading, socket, struct, json, hashlib
-import io, base64, time, subprocess, platform, os, uuid, re, webbrowser
-import urllib.request
+import io, base64, time, subprocess, platform, os, sys, uuid, re, webbrowser
+import urllib.request, tempfile, zipfile
 from pathlib import Path
 
 try:
@@ -23,8 +23,9 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.3.0"
+__version__      = "1.4.0"
 GITHUB_REPO      = "otto-BigO/remote-control"
+UPDATE_ASSET     = "Remote-Control-macOS.zip"   # client build attached to releases
 PROTOCOL_VERSION = "2"
 DISCOVERY_PORT   = 5902
 DEFAULT_PORT     = 5901
@@ -107,7 +108,8 @@ def _parse_ver(s):
     return tuple(int(n) for n in nums[:3]) if nums else (0,)
 
 def fetch_latest_release(timeout=6):
-    """Return (tag, html_url, body) for the newest GitHub release, or None."""
+    """Return (tag, html_url, body, assets) for the newest release, or None.
+    `assets` maps asset name → download URL."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
     req = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
@@ -116,9 +118,18 @@ def fetch_latest_release(timeout=6):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             d = json.loads(r.read().decode())
-        return d.get("tag_name"), d.get("html_url"), (d.get("body") or "")
+        assets = {a["name"]: a["browser_download_url"] for a in d.get("assets", [])}
+        return d.get("tag_name"), d.get("html_url"), (d.get("body") or ""), assets
     except Exception:
         return None
+
+def _download(url, dest):
+    req = urllib.request.Request(url, headers={"User-Agent": "RemoteControl-Update"})
+    with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as f:
+        while True:
+            chunk = r.read(65536)
+            if not chunk: break
+            f.write(chunk)
 
 # ── Clipboard ─────────────────────────────────────────────────────────────
 
@@ -187,7 +198,7 @@ def load_font(size):
     return f
 
 def lighten(hexc, f=0.10):
-    """Blend a #rrggbb colour toward white by fraction f (0–1)."""
+    """Blend a #rrggbb colour toward white by fraction f (0-1)."""
     try:
         h = hexc.lstrip("#")
         r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
@@ -196,7 +207,7 @@ def lighten(hexc, f=0.10):
     except: return hexc
 
 def darken(hexc, f=0.12):
-    """Blend a #rrggbb colour toward black by fraction f (0–1)."""
+    """Blend a #rrggbb colour toward black by fraction f (0-1)."""
     try:
         h = hexc.lstrip("#")
         r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
@@ -417,7 +428,7 @@ class App(tk.Tk):
 
         # Zoom / pan
         self._zoom  = 1.0
-        self._pan_x = 0.5    # centre of image (0–1)
+        self._pan_x = 0.5    # centre of image (0-1)
         self._pan_y = 0.5
         self._pan_drag_start = None
 
@@ -545,8 +556,8 @@ class App(tk.Tk):
         # Profile picker
         pf = tk.Frame(cb, bg=BG); pf.pack(side="right")
         lbl(pf, "Profile", 11, TEXT2, bg=BG).pack(anchor="w")
-        self._profile_var = tk.StringVar(value="— select —")
-        self._profile_menu = tk.OptionMenu(pf, self._profile_var, "— select —")
+        self._profile_var = tk.StringVar(value="Select…")
+        self._profile_menu = tk.OptionMenu(pf, self._profile_var, "Select…")
         self._profile_menu.config(bg=SURFACE2, fg=TEXT, font=(FONT,12),
                                   relief="flat", bd=0, highlightthickness=1,
                                   highlightbackground=BORDER, highlightcolor=BORDER,
@@ -653,7 +664,7 @@ class App(tk.Tk):
 
     def _build_home_ui(self):
         self._home = tk.Toplevel(self); self._home.withdraw()
-        self._home.title("Remote Control — Home"); self._home.configure(bg=SURFACE)
+        self._home.title("Remote Control Home"); self._home.configure(bg=SURFACE)
         self._home.resizable(False, False)
         self._home.attributes("-topmost", True)
         self._home.protocol("WM_DELETE_WINDOW", lambda: self._switch_mode(self.MODE_REMOTE))
@@ -677,7 +688,7 @@ class App(tk.Tk):
         # Connection row
         cf = tk.Frame(outer, bg=BG, pady=8, padx=14); cf.pack(fill="x")
         lbl(cf, "Host", 11, TEXT2, bg=BG).pack(side="left")
-        self._home_host_lbl = lbl(cf, "—", 12, TEXT, bg=BG)
+        self._home_host_lbl = lbl(cf, "…", 12, TEXT, bg=BG)
         self._home_host_lbl.pack(side="left", padx=(6,14))
         self._home_conn_btn = btn(cf, "Connect", self._toggle_conn)
         self._home_conn_btn.pack(side="left")
@@ -687,7 +698,7 @@ class App(tk.Tk):
 
         # Grab Input button (full width, prominent)
         gf = tk.Frame(outer, bg=SURFACE, pady=12, padx=14); gf.pack(fill="x")
-        self._home_focus_btn = btn(gf, "⌨️  Grab Input  —  Mirror mouse & keyboard",
+        self._home_focus_btn = btn(gf, "⌨️  Grab Input: Mirror mouse & keyboard",
                                    self._home_toggle_focus, color=GREEN, size=14)
         self._home_focus_btn.pack(fill="x")
 
@@ -702,7 +713,7 @@ class App(tk.Tk):
 
         hdiv(outer).pack(fill="x")
         self._home_hint = lbl(outer,
-            "  Click 'Grab Input' — your mouse & keyboard mirror to Mac Mini",
+            "  Click 'Grab Input', your mouse & keyboard mirror to Mac Mini",
             11, TEXT2, bg=SURFACE)
         self._home_hint.pack(anchor="w", padx=14, pady=6)
 
@@ -732,7 +743,7 @@ class App(tk.Tk):
         Home mode capture.
 
         A nearly-invisible fullscreen window handles clicks, scroll, keyboard.
-        Mouse POSITION is polled every 16 ms via winfo_pointerx/y() — the OS
+        Mouse POSITION is polled every 16 ms via winfo_pointerx/y(); the OS
         always exposes the cursor location, no click-to-activate needed.
         """
         sw = self.winfo_screenwidth()
@@ -766,7 +777,7 @@ class App(tk.Tk):
         ov.bind("<KeyRelease>", self._ov_key_up)
         ov.bind("<Escape>",     lambda e: self._stop_overlay())
 
-        # Mouse POSITION — polled (works without any click first)
+        # Mouse POSITION, polled (works without any click first)
         self._ov_poll_stop = threading.Event()
         threading.Thread(target=self._ov_poll_mouse, daemon=True).start()
 
@@ -780,7 +791,7 @@ class App(tk.Tk):
     def _ov_poll_mouse(self):
         """
         Read absolute screen cursor position every 16 ms and mirror to Mac Mini.
-        winfo_pointerx/y() reads straight from the OS — no window focus needed.
+        winfo_pointerx/y() reads straight from the OS, no window focus needed.
         """
         last = (-1, -1)
         stop = self._ov_poll_stop
@@ -804,10 +815,10 @@ class App(tk.Tk):
             self._overlay.destroy()
         self._overlay = None
         self._home_focus_btn.config(
-            text="⌨️  Grab Input  —  Mirror mouse & keyboard",
+            text="⌨️  Grab Input: Mirror mouse & keyboard",
             bg=GREEN, fg="white", activebackground="#2db84d")
         self._home_hint.config(
-            text="  Click 'Grab Input' — your mouse & keyboard mirror to Mac Mini",
+            text="  Click 'Grab Input', your mouse & keyboard mirror to Mac Mini",
             fg=TEXT2)
         self._home.focus_set()
 
@@ -871,7 +882,7 @@ class App(tk.Tk):
             b.config(text="Connecting…", state="disabled")
         self._status("Connecting…")
         def worker():
-            err = self.conn.connect(host, port, pw)   # blocking — stays off the UI thread
+            err = self.conn.connect(host, port, pw)   # blocking, stays off the UI thread
             self.after(0, lambda: self._conn_result(err))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -912,7 +923,7 @@ class App(tk.Tk):
             b.config(text="Connect", bg=BLUE, activebackground=BLUE_H, state="normal")
         self._set_pill("Disconnected", RED, PILL_BAD)
         self._home_pill.config(text="●  Disconnected", bg=PILL_BAD, fg=RED)
-        self._home_host_lbl.config(text="—")
+        self._home_host_lbl.config(text="…")
         self._placeholder("Disconnected"); self._fps_lbl.config(text="")
         self._status("Disconnected")
         self._clear_monitor_picker()
@@ -928,7 +939,7 @@ class App(tk.Tk):
     def _scan(self):
         self._status("Scanning LAN…")
         def worker():
-            results = scan_lan()                       # blocking — stays off the UI thread
+            results = scan_lan()                       # blocking, stays off the UI thread
             self.after(0, lambda: self._scan_done(results))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -944,7 +955,7 @@ class App(tk.Tk):
 
     def _refresh_profile_menu(self):
         menu = self._profile_menu["menu"]; menu.delete(0, "end")
-        menu.add_command(label="— select —", command=lambda: self._profile_var.set("— select —"))
+        menu.add_command(label="Select…", command=lambda: self._profile_var.set("Select…"))
         for p in self._profiles_data.get("profiles", []):
             n = p["name"]
             menu.add_command(label=n, command=lambda x=n: self._load_profile(x))
@@ -980,7 +991,7 @@ class App(tk.Tk):
         self._profiles_data["profiles"] = [
             p for p in self._profiles_data.get("profiles",[]) if p["name"] != name]
         save_profiles(self._profiles_data); self._refresh_profile_menu()
-        self._profile_var.set("— select —"); self._status(f"Deleted: {name}")
+        self._profile_var.set("Select…"); self._status(f"Deleted: {name}")
 
     # ══════════════════════════════════════════════════════════════════════
     # Monitor picker
@@ -1023,7 +1034,7 @@ class App(tk.Tk):
         img = Image.new("RGB", (self.PW, self.PH), CANVAS_BG)
         d = ImageDraw.Draw(img)
         if sub is None:
-            sub = ("Enter an IP and press Connect — or hit Scan LAN"
+            sub = ("Enter an IP and press Connect, or hit Scan LAN"
                    if msg == "Not connected" else
                    "Press Connect to reconnect")
         title_f, sub_f = load_font(26), load_font(13)
@@ -1435,19 +1446,23 @@ class App(tk.Tk):
             if manual:
                 messagebox.showinfo("Updates", "Couldn't reach GitHub to check for updates.")
             return
-        tag, url, body = res
+        tag, url, body, assets = res
         if _parse_ver(tag) > _parse_ver(__version__):
-            self._show_update_dialog(tag, url, body)
+            self._show_update_dialog(tag, url, body, assets)
         elif manual:
             messagebox.showinfo("Updates", f"You're on the latest version (v{__version__}).")
 
-    def _show_update_dialog(self, tag, url, body):
+    def _can_inplace_update(self, assets):
+        # Only the packaged macOS .app can swap itself in place.
+        return getattr(sys, "frozen", False) and IS_MAC and UPDATE_ASSET in (assets or {})
+
+    def _show_update_dialog(self, tag, url, body, assets):
         win = tk.Toplevel(self); win.title("Update available")
         win.configure(bg=BG); win.transient(self); win.resizable(False, False)
         win.attributes("-topmost", True)
         pad = tk.Frame(win, bg=BG); pad.pack(fill="both", expand=True, padx=20, pady=18)
         lbl(pad, "Update available", 17, bold=True).pack(anchor="w")
-        lbl(pad, f"{tag} is available  —  you have v{__version__}", 12, TEXT2).pack(
+        lbl(pad, f"{tag} is available. You have v{__version__}", 12, TEXT2).pack(
             anchor="w", pady=(4, 10))
 
         box = tk.Frame(pad, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER)
@@ -1459,13 +1474,69 @@ class App(tk.Tk):
         txt.config(state="disabled"); txt.pack(fill="both", expand=True)
 
         row = tk.Frame(pad, bg=BG); row.pack(fill="x", pady=(14, 0))
-        btn(row, "Download", lambda: (webbrowser.open(url), win.destroy())).pack(side="right")
         sbtn(row, "Later", win.destroy).pack(side="right", padx=(0, 8))
+        if self._can_inplace_update(assets):
+            btn(row, "Update & Restart",
+                lambda: self._start_inplace_update(assets[UPDATE_ASSET], url, win, pad)
+                ).pack(side="right")
+        else:
+            btn(row, "Download",
+                lambda: (webbrowser.open(url), win.destroy())).pack(side="right")
 
         win.update_idletasks()
         x = self.winfo_rootx() + (self.winfo_width() - win.winfo_reqwidth()) // 2
         win.geometry(f"+{max(0, x)}+{self.winfo_rooty() + 90}")
         win.lift(); win.focus_force()
+
+    def _start_inplace_update(self, asset_url, fallback_url, win, pad):
+        for w in pad.winfo_children():
+            w.destroy()
+        lbl(pad, "Updating…", 16, bold=True).pack(anchor="w")
+        status = lbl(pad, "Downloading the new version…", 12, TEXT2)
+        status.pack(anchor="w", pady=(10, 16))
+
+        def fail(msg):
+            status.config(text=msg, fg=ORANGE)
+            r = tk.Frame(pad, bg=BG); r.pack(anchor="e", pady=(8, 0))
+            sbtn(r, "Close", win.destroy).pack(side="right", padx=(0, 8))
+            btn(r, "Open download page",
+                lambda: (webbrowser.open(fallback_url), win.destroy())).pack(side="right")
+
+        def worker():
+            try:
+                tmp = Path(tempfile.mkdtemp(prefix="rcupd_"))
+                zpath = tmp / "update.zip"
+                _download(asset_url, zpath)
+                self.after(0, lambda: status.config(text="Installing…"))
+                subprocess.run(["ditto", "-x", "-k", str(zpath), str(tmp / "x")], check=True)
+                new_app = tmp / "x" / "Remote Control.app"
+                if not (new_app / "Contents" / "MacOS").exists():
+                    raise RuntimeError("downloaded app looks malformed")
+                app_path = Path(sys.executable).resolve().parents[2]   # …/Remote Control.app
+                pid = os.getpid()
+                script = tmp / "swap.sh"
+                script.write_text(
+                    "#!/bin/bash\n"
+                    f'APP="{app_path}"\nNEW="{new_app}"\n'
+                    f'while kill -0 {pid} 2>/dev/null; do sleep 0.3; done\n'
+                    'rm -rf "$APP.bak"\n'
+                    'mv "$APP" "$APP.bak" || exit 1\n'
+                    'if ! mv "$NEW" "$APP"; then mv "$APP.bak" "$APP"; open "$APP"; exit 1; fi\n'
+                    'xattr -dr com.apple.quarantine "$APP" 2>/dev/null\n'
+                    'open "$APP"\n'
+                    'rm -rf "$APP.bak"\n')
+                os.chmod(script, 0o755)
+                subprocess.Popen(["/bin/bash", str(script)], start_new_session=True)
+                self.after(0, self._quit_for_update)
+            except Exception as e:
+                self.after(0, lambda: fail(f"Update failed: {e}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _quit_for_update(self):
+        try: self.conn.close()
+        except Exception: pass
+        self.destroy()
 
     def destroy(self):
         self._disc(); super().destroy()
