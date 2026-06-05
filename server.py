@@ -40,7 +40,7 @@ import zipfile
 import urllib.request
 from pathlib import Path
 
-__version__ = "1.5.2"
+__version__ = "1.5.3"
 GITHUB_REPO = "otto-BigO/remote-control"
 
 try:
@@ -301,7 +301,8 @@ class Session:
         try:
             self.term_proc = subprocess.Popen(
                 [shell, "-i"], stdin=slave, stdout=slave, stderr=slave,
-                preexec_fn=os.setsid, env=env, close_fds=True)
+                preexec_fn=os.setsid, env=env, close_fds=True,
+                cwd=str(Path.home()))     # open in the home directory, like a normal terminal
         except Exception as e:
             os.close(master); os.close(slave)
             self.send({"type": "term_output", "data": f"Could not start shell: {e}\r\n"})

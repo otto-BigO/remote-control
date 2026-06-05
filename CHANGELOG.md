@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.3
+
+- The terminal now opens in your home directory, like a normal terminal, instead
+  of wherever the server happened to be launched from.
+
 ## 1.5.2
 
 - Rebuilt the terminal to behave like a real desktop terminal. You type directly

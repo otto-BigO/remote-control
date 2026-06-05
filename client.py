@@ -23,7 +23,7 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.5.2"
+__version__      = "1.5.3"
 GITHUB_REPO      = "otto-BigO/remote-control"
 UPDATE_ASSET     = "Remote-Control-macOS.zip"   # client build attached to releases
 PROTOCOL_VERSION = "2"
