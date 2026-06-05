@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.1
+
+- Fix terminal rendering. Interactive shells use carriage returns to redraw the
+  current line; the client was turning those into newlines, which garbled the
+  output (duplicated characters, stray blank lines). Carriage returns now
+  overwrite the current line, the way a real terminal does.
+
 ## 1.5.0
 
 - **Remote terminal.** A Terminal button opens a live shell on the connected

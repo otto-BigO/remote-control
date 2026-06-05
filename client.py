@@ -23,7 +23,7 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.5.0"
+__version__      = "1.5.1"
 GITHUB_REPO      = "otto-BigO/remote-control"
 UPDATE_ASSET     = "Remote-Control-macOS.zip"   # client build attached to releases
 PROTOCOL_VERSION = "2"
@@ -1530,9 +1530,18 @@ class App(tk.Tk):
     def _term_append(self, data):
         t = self._term_text
         if not (t and self._term_win and self._term_win.winfo_exists()): return
-        clean = self._ANSI_RE.sub("", data).replace("\r\n", "\n").replace("\r", "\n")
+        # Strip escape sequences but keep \t \n \r, then apply carriage returns:
+        # a lone \r rewrites the current line (how shells redraw prompts/input).
+        clean = self._ANSI_RE.sub("", data)
         t.config(state="normal")
-        t.insert("end", clean); t.see("end")
+        for part in re.split(r"(\r\n|\r|\n)", clean):
+            if part == "\r":
+                t.delete("end-1c linestart", "end-1c")     # overwrite current line
+            elif part in ("\n", "\r\n"):
+                t.insert("end", "\n")
+            elif part:
+                t.insert("end", part)
+        t.see("end")
         if int(t.index("end-1c").split(".")[0]) > 6000:    # cap the scrollback
             t.delete("1.0", "1500.0")
         t.config(state="disabled")

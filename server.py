@@ -40,7 +40,7 @@ import zipfile
 import urllib.request
 from pathlib import Path
 
-__version__ = "1.5.0"
+__version__ = "1.5.1"
 GITHUB_REPO = "otto-BigO/remote-control"
 
 try:
