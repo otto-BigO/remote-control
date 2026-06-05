@@ -102,6 +102,7 @@ says nothing.
 - Zoom (`Ctrl`+scroll) and pan (middle-drag); full-screen preview.
 - Clipboard push, pull, and auto-sync.
 - File transfer to the controlled machine.
+- Live terminal: a pty-backed shell on the controlled machine.
 - Saved connection profiles.
 
 ## Shortcuts

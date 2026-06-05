@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0
+
+- **Remote terminal.** A Terminal button opens a live shell on the connected
+  machine. Type commands and see output, with Ctrl-C and Clear in the header.
+  It runs a real pty-backed shell, so the working directory and environment
+  persist between commands. Works on the macOS and Linux servers.
+- **Scrollable sidebar.** The control sidebar now scrolls, so File Transfer and
+  the other lower sections stay reachable on short windows (previously the
+  bottom section could be clipped out of view).
+
 ## 1.4.0
 
 Built-in auto-update, so the client and server update themselves with no manual

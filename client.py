@@ -23,7 +23,7 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.4.0"
+__version__      = "1.5.0"
 GITHUB_REPO      = "otto-BigO/remote-control"
 UPDATE_ASSET     = "Remote-Control-macOS.zip"   # client build attached to releases
 PROTOCOL_VERSION = "2"
@@ -409,6 +409,7 @@ class App(tk.Tk):
             ("monitor_set",     lambda _: None),
             ("file_ack",        self._on_file_ack),
             ("file_done",       self._on_file_done),
+            ("term_output",     self._on_term_output),
             ("_disc",           lambda _: self.after(0, self._on_disc)),
         ]:
             self.conn.on(t, fn)
@@ -455,6 +456,10 @@ class App(tk.Tk):
 
         # File transfer pending
         self._file_pending = {}   # fid → path
+
+        # Terminal window
+        self._term_win  = None
+        self._term_text = None
 
         # Root key bindings
         self.bind("<KeyPress>",   self._key_down)
@@ -610,10 +615,29 @@ class App(tk.Tk):
 
         self._fps_lbl = lbl(pane, "", 11, TEXT2, bg=BG); self._fps_lbl.pack(anchor="w", pady=(4,0))
 
-        # ── Sidebar ────────────────────────────────────────────────────────
-        sb = tk.Frame(body, bg=SURFACE, width=220,
-                      highlightthickness=1, highlightbackground=BORDER)
-        sb.pack(side="right", fill="y", padx=(14,0)); sb.pack_propagate(False)
+        # ── Sidebar (scrollable so nothing gets clipped on short windows) ───
+        sb_outer = tk.Frame(body, bg=SURFACE, width=232,
+                            highlightthickness=1, highlightbackground=BORDER)
+        sb_outer.pack(side="right", fill="y", padx=(14,0)); sb_outer.pack_propagate(False)
+        sb_canvas = tk.Canvas(sb_outer, bg=SURFACE, highlightthickness=0)
+        sb_scroll = tk.Scrollbar(sb_outer, orient="vertical", command=sb_canvas.yview)
+        sb_canvas.configure(yscrollcommand=sb_scroll.set)
+        sb_scroll.pack(side="right", fill="y")
+        sb_canvas.pack(side="left", fill="both", expand=True)
+        sb = tk.Frame(sb_canvas, bg=SURFACE)
+        sb_win = sb_canvas.create_window((0, 0), window=sb, anchor="nw")
+        sb.bind("<Configure>", lambda e: sb_canvas.configure(scrollregion=sb_canvas.bbox("all")))
+        sb_canvas.bind("<Configure>", lambda e: sb_canvas.itemconfig(sb_win, width=e.width))
+
+        def _sb_wheel(e):
+            d = 1 if getattr(e, "num", None) == 5 else -1 if getattr(e, "num", None) == 4 \
+                else (-1 if e.delta > 0 else 1)
+            sb_canvas.yview_scroll(d, "units")
+        def _sb_bind(_):
+            for s in ("<MouseWheel>", "<Button-4>", "<Button-5>"): sb_canvas.bind_all(s, _sb_wheel)
+        def _sb_unbind(_):
+            for s in ("<MouseWheel>", "<Button-4>", "<Button-5>"): sb_canvas.unbind_all(s)
+        sb_outer.bind("<Enter>", _sb_bind); sb_outer.bind("<Leave>", _sb_unbind)
 
         def _sec(t):
             hdiv(sb).pack(fill="x")
@@ -648,9 +672,13 @@ class App(tk.Tk):
 
         # File transfer
         _sec("FILE TRANSFER")
-        sbtn(sb, "📁  Send file to Mac Mini", self._send_file).pack(padx=12, pady=(0,4), fill="x")
+        sbtn(sb, "📁  Send file to remote", self._send_file).pack(padx=12, pady=(0,4), fill="x")
         self._file_lbl = lbl(sb, "", 10, TEXT2, bg=SURFACE, wraplength=188, justify="left")
         self._file_lbl.pack(padx=12, anchor="w")
+
+        # Terminal
+        _sec("TERMINAL")
+        sbtn(sb, "🖥  Open Terminal", self._open_terminal).pack(padx=12, pady=(0,10), fill="x")
 
         # Status bar
         hdiv(self._remote_frame).pack(fill="x")
@@ -927,6 +955,9 @@ class App(tk.Tk):
         self._placeholder("Disconnected"); self._fps_lbl.config(text="")
         self._status("Disconnected")
         self._clear_monitor_picker()
+        if self._term_win and self._term_win.winfo_exists():
+            self._term_win.destroy()
+        self._term_win = None; self._term_text = None
         # overlay already released above via _stop_overlay()
 
     def _set_pill(self, text, fg, bg):
@@ -1430,6 +1461,88 @@ class App(tk.Tk):
         self.after(0, lambda: self._file_lbl.config(text=f"✓ Saved: {name}"))
 
     # ══════════════════════════════════════════════════════════════════════
+    # Terminal (live shell on the remote machine)
+    # ══════════════════════════════════════════════════════════════════════
+
+    _ANSI_RE = re.compile(
+        r"\x1b\[[0-9;?]*[ -/]*[@-~]"      # CSI sequences
+        r"|\x1b\][^\x07]*(?:\x07|\x1b\\)" # OSC sequences
+        r"|\x1b[@-Z\\-_]"                 # other escapes
+        r"|[\x00-\x08\x0b\x0c\x0e-\x1f]"  # control chars (keep \t and \n)
+    )
+
+    def _open_terminal(self):
+        if not self.conn.connected:
+            messagebox.showinfo("Terminal", "Connect to a server first."); return
+        if self._term_win and self._term_win.winfo_exists():
+            self._term_win.lift(); self._term_win.focus_force(); return
+
+        win = tk.Toplevel(self); win.title(f"Terminal: {self.conn.hostname}")
+        win.configure(bg=CANVAS_BG); win.geometry("780x480"); win.minsize(480, 280)
+        self._term_win = win
+        win.protocol("WM_DELETE_WINDOW", self._close_terminal)
+
+        hdr = tk.Frame(win, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER)
+        hdr.pack(fill="x")
+        lbl(hdr, f"🖥  {self.conn.hostname}", 12, bold=True, bg=SURFACE).pack(side="left", padx=12, pady=6)
+        sbtn(hdr, "Ctrl-C", lambda: self.conn.send({"type": "term_signal", "sig": "int"})
+             ).pack(side="right", padx=(0, 10), pady=5)
+        sbtn(hdr, "Clear", self._term_clear).pack(side="right", padx=(0, 6), pady=5)
+
+        body = tk.Frame(win, bg=CANVAS_BG); body.pack(fill="both", expand=True)
+        scr = tk.Scrollbar(body)
+        txt = tk.Text(body, bg=CANVAS_BG, fg="#d6d6d6", insertbackground="#d6d6d6",
+                      font=("Menlo", 12), relief="flat", bd=0, wrap="char",
+                      highlightthickness=0, padx=8, pady=6, yscrollcommand=scr.set)
+        scr.config(command=txt.yview); scr.pack(side="right", fill="y")
+        txt.pack(side="left", fill="both", expand=True)
+        txt.config(state="disabled"); self._term_text = txt
+
+        row = tk.Frame(win, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER)
+        row.pack(fill="x")
+        lbl(row, "❯", 13, color=GREEN, bg=SURFACE).pack(side="left", padx=(10, 4), pady=6)
+        self._term_var = tk.StringVar()
+        ent = tk.Entry(row, textvariable=self._term_var, bg=SURFACE, fg=TEXT,
+                       insertbackground=TEXT, font=("Menlo", 12), relief="flat",
+                       bd=0, highlightthickness=0)
+        ent.pack(side="left", fill="x", expand=True, pady=6, padx=(0, 10))
+        ent.bind("<Return>", self._term_send)
+        ent.focus_set()
+
+        self.conn.send({"type": "term_start"})
+
+    def _term_send(self, _e=None):
+        if not (self.conn.connected and self._term_win): return
+        self.conn.send({"type": "term_input", "data": self._term_var.get() + "\n"})
+        self._term_var.set("")
+
+    def _term_clear(self):
+        if not self._term_text: return
+        self._term_text.config(state="normal")
+        self._term_text.delete("1.0", "end")
+        self._term_text.config(state="disabled")
+
+    def _on_term_output(self, msg):
+        data = msg.get("data", "")
+        if data:
+            self.after(0, lambda: self._term_append(data))
+
+    def _term_append(self, data):
+        t = self._term_text
+        if not (t and self._term_win and self._term_win.winfo_exists()): return
+        clean = self._ANSI_RE.sub("", data).replace("\r\n", "\n").replace("\r", "\n")
+        t.config(state="normal")
+        t.insert("end", clean); t.see("end")
+        if int(t.index("end-1c").split(".")[0]) > 6000:    # cap the scrollback
+            t.delete("1.0", "1500.0")
+        t.config(state="disabled")
+
+    def _close_terminal(self):
+        if self.conn.connected:
+            self.conn.send({"type": "term_close"})
+        if self._term_win and self._term_win.winfo_exists():
+            self._term_win.destroy()
+        self._term_win = None; self._term_text = None
 
     # ══════════════════════════════════════════════════════════════════════
     # Update check

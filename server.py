@@ -34,12 +34,13 @@ import subprocess
 import platform
 import shutil
 import re
+import select
 import tempfile
 import zipfile
 import urllib.request
 from pathlib import Path
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 GITHUB_REPO = "otto-BigO/remote-control"
 
 try:
@@ -239,6 +240,9 @@ class Session:
         self.files = {}                       # id -> {f, path, name}
         self.clip_stop = None                 # threading.Event when auto-sync on
         self.clip_last = None
+        self.term_fd = None                   # pty master fd
+        self.term_proc = None                 # shell process
+        self.term_stop = None
 
     def send(self, obj):
         with self.send_lock:
@@ -277,9 +281,77 @@ class Session:
                 self.clip_last = h
                 self.send({"type": "clipboard_auto", "text": text})
 
+    # ── terminal (pty-backed shell) ─────────────────────────────────────
+    def start_terminal(self):
+        if self.term_fd is not None:
+            return
+        if IS_WIN:
+            self.send({"type": "term_output",
+                       "data": "Terminal is not supported on the Windows server yet.\r\n"})
+            return
+        import pty
+        shell = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
+        master, slave = pty.openpty()
+        try:
+            import fcntl, termios
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+        except Exception:
+            pass
+        env = dict(os.environ, TERM="xterm-256color")
+        try:
+            self.term_proc = subprocess.Popen(
+                [shell, "-i"], stdin=slave, stdout=slave, stderr=slave,
+                preexec_fn=os.setsid, env=env, close_fds=True)
+        except Exception as e:
+            os.close(master); os.close(slave)
+            self.send({"type": "term_output", "data": f"Could not start shell: {e}\r\n"})
+            return
+        os.close(slave)
+        self.term_fd = master
+        self.term_stop = threading.Event()
+        threading.Thread(target=self._term_reader, daemon=True).start()
+        print(f"[>] {self.tag} opened a terminal ({shell})")
+
+    def _term_reader(self):
+        fd, stop = self.term_fd, self.term_stop
+        while stop and not stop.is_set():
+            try:
+                r, _, _ = select.select([fd], [], [], 0.3)
+                if fd in r:
+                    data = os.read(fd, 65536)
+                    if not data:
+                        break
+                    self.send({"type": "term_output", "data": data.decode(errors="replace")})
+            except OSError:
+                break
+        self.close_terminal()
+
+    def term_write(self, data):
+        if self.term_fd is not None:
+            try: os.write(self.term_fd, data.encode())
+            except OSError: pass
+
+    def term_signal(self, sig):
+        if self.term_fd is not None and sig == "int":
+            try: os.write(self.term_fd, b"\x03")
+            except OSError: pass
+
+    def close_terminal(self):
+        if self.term_stop:
+            self.term_stop.set(); self.term_stop = None
+        if self.term_proc:
+            try: self.term_proc.terminate()
+            except Exception: pass
+            self.term_proc = None
+        if self.term_fd is not None:
+            try: os.close(self.term_fd)
+            except OSError: pass
+            self.term_fd = None
+
     # ── cleanup ─────────────────────────────────────────────────────────
     def cleanup(self):
         self.stop_clip_watch()
+        self.close_terminal()
         for info in self.files.values():
             try: info["f"].close()
             except Exception: pass
@@ -357,6 +429,18 @@ def client_session(conn, addr, password_hash):
 
             elif t == "file_chunk":
                 _file_chunk(s, msg)
+
+            elif t == "term_start":
+                s.start_terminal()
+
+            elif t == "term_input":
+                s.term_write(msg.get("data", ""))
+
+            elif t == "term_signal":
+                s.term_signal(msg.get("sig", ""))
+
+            elif t == "term_close":
+                s.close_terminal()
 
             elif t == "ping":
                 s.send({"type": "pong"})
