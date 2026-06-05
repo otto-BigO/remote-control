@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.2
+
+- Rebuilt the terminal to behave like a real desktop terminal. You type directly
+  into the window now (no separate input box), with backspace, arrow keys, Tab
+  completion, Ctrl-C and other control combos, and copy/paste. A small built-in
+  terminal emulator renders the output, handling line redraws, cursor moves, and
+  16-colour ANSI, so prompts and colored output (like `ls --color`) look right.
+
 ## 1.5.1
 
 - Fix terminal rendering. Interactive shells use carriage returns to redraw the

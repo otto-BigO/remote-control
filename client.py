@@ -23,7 +23,7 @@ try:
 except ImportError:
     import sys; sys.exit("pip3 install Pillow")
 
-__version__      = "1.5.1"
+__version__      = "1.5.2"
 GITHUB_REPO      = "otto-BigO/remote-control"
 UPDATE_ASSET     = "Remote-Control-macOS.zip"   # client build attached to releases
 PROTOCOL_VERSION = "2"
@@ -1464,12 +1464,22 @@ class App(tk.Tk):
     # Terminal (live shell on the remote machine)
     # ══════════════════════════════════════════════════════════════════════
 
-    _ANSI_RE = re.compile(
-        r"\x1b\[[0-9;?]*[ -/]*[@-~]"      # CSI sequences
-        r"|\x1b\][^\x07]*(?:\x07|\x1b\\)" # OSC sequences
-        r"|\x1b[@-Z\\-_]"                 # other escapes
-        r"|[\x00-\x08\x0b\x0c\x0e-\x1f]"  # control chars (keep \t and \n)
-    )
+    # 16-colour ANSI palette (Tango-ish), index 0..15
+    _TERM_PALETTE = [
+        "#2e3436", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b",
+        "#06989a", "#d3d7cf", "#555753", "#ef2929", "#8ae234", "#fce94f",
+        "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
+    ]
+    _TERM_FG = "#d6d6d6"
+
+    # keysym -> bytes sent to the pty
+    _TERM_KEYS = {
+        "Return": "\r", "KP_Enter": "\r", "BackSpace": "\x7f", "Tab": "\t",
+        "Escape": "\x1b", "Up": "\x1b[A", "Down": "\x1b[B", "Right": "\x1b[C",
+        "Left": "\x1b[D", "Home": "\x1b[H", "End": "\x1b[F", "Prior": "\x1b[5~",
+        "Next": "\x1b[6~", "Delete": "\x1b[3~", "Insert": "\x1b[2~",
+        "F1": "\x1bOP", "F2": "\x1bOQ", "F3": "\x1bOR", "F4": "\x1bOS",
+    }
 
     def _open_terminal(self):
         if not self.conn.connected:
@@ -1478,73 +1488,181 @@ class App(tk.Tk):
             self._term_win.lift(); self._term_win.focus_force(); return
 
         win = tk.Toplevel(self); win.title(f"Terminal: {self.conn.hostname}")
-        win.configure(bg=CANVAS_BG); win.geometry("780x480"); win.minsize(480, 280)
+        win.configure(bg=CANVAS_BG); win.geometry("820x500"); win.minsize(480, 260)
         self._term_win = win
         win.protocol("WM_DELETE_WINDOW", self._close_terminal)
 
-        hdr = tk.Frame(win, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER)
-        hdr.pack(fill="x")
-        lbl(hdr, f"🖥  {self.conn.hostname}", 12, bold=True, bg=SURFACE).pack(side="left", padx=12, pady=6)
-        sbtn(hdr, "Ctrl-C", lambda: self.conn.send({"type": "term_signal", "sig": "int"})
-             ).pack(side="right", padx=(0, 10), pady=5)
-        sbtn(hdr, "Clear", self._term_clear).pack(side="right", padx=(0, 6), pady=5)
-
-        body = tk.Frame(win, bg=CANVAS_BG); body.pack(fill="both", expand=True)
-        scr = tk.Scrollbar(body)
-        txt = tk.Text(body, bg=CANVAS_BG, fg="#d6d6d6", insertbackground="#d6d6d6",
-                      font=("Menlo", 12), relief="flat", bd=0, wrap="char",
-                      highlightthickness=0, padx=8, pady=6, yscrollcommand=scr.set)
+        scr = tk.Scrollbar(win)
+        txt = tk.Text(win, bg=CANVAS_BG, fg=self._TERM_FG, insertbackground="#9eff9e",
+                      font=("Menlo", 13), relief="flat", bd=0, wrap="char",
+                      highlightthickness=0, padx=8, pady=6, yscrollcommand=scr.set,
+                      insertwidth=8, blockcursor=True, undo=False)
         scr.config(command=txt.yview); scr.pack(side="right", fill="y")
         txt.pack(side="left", fill="both", expand=True)
-        txt.config(state="disabled"); self._term_text = txt
+        for i, col in enumerate(self._TERM_PALETTE):
+            txt.tag_configure(f"fg{i}", foreground=col)
+        self._term_text = txt
 
-        row = tk.Frame(win, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER)
-        row.pack(fill="x")
-        lbl(row, "❯", 13, color=GREEN, bg=SURFACE).pack(side="left", padx=(10, 4), pady=6)
-        self._term_var = tk.StringVar()
-        ent = tk.Entry(row, textvariable=self._term_var, bg=SURFACE, fg=TEXT,
-                       insertbackground=TEXT, font=("Menlo", 12), relief="flat",
-                       bd=0, highlightthickness=0)
-        ent.pack(side="left", fill="x", expand=True, pady=6, padx=(0, 10))
-        ent.bind("<Return>", self._term_send)
-        ent.focus_set()
+        # cursor + colour state for the emulator
+        self._t_row = 1; self._t_col = 0
+        self._t_fg = None; self._t_bold = False; self._t_tag = ""
+
+        txt.bind("<Key>", self._term_key)
+        txt.bind("<Command-c>", self._term_copy)
+        txt.bind("<Command-v>", self._term_paste)
+        txt.bind("<Button-1>", lambda e: txt.focus_set())
+        txt.focus_set()
 
         self.conn.send({"type": "term_start"})
 
-    def _term_send(self, _e=None):
-        if not (self.conn.connected and self._term_win): return
-        self.conn.send({"type": "term_input", "data": self._term_var.get() + "\n"})
-        self._term_var.set("")
+    # ── keyboard: send keystrokes straight to the pty ───────────────────
+    def _term_key(self, e):
+        if not (self.conn.connected and self._term_win):
+            return "break"
+        ks = e.keysym
+        if ks in self._TERM_KEYS:
+            self.conn.send({"type": "term_input", "data": self._TERM_KEYS[ks]}); return "break"
+        if (e.state & 0x4) and len(ks) == 1 and ks.isalpha():     # Ctrl + letter
+            self.conn.send({"type": "term_input", "data": chr(ord(ks.upper()) - 64)}); return "break"
+        if e.char and (e.char >= " " or e.char in "\t"):
+            self.conn.send({"type": "term_input", "data": e.char}); return "break"
+        return "break"
 
-    def _term_clear(self):
-        if not self._term_text: return
-        self._term_text.config(state="normal")
-        self._term_text.delete("1.0", "end")
-        self._term_text.config(state="disabled")
+    def _term_copy(self, _e=None):
+        try:
+            sel = self._term_text.get("sel.first", "sel.last")
+            self.clipboard_clear(); self.clipboard_append(sel)
+        except Exception: pass
+        return "break"
 
+    def _term_paste(self, _e=None):
+        try: data = self.clipboard_get()
+        except Exception: data = ""
+        if data and self.conn.connected:
+            self.conn.send({"type": "term_input", "data": data})
+        return "break"
+
+    # ── output: a small VT emulator drawing into the Text widget ────────
     def _on_term_output(self, msg):
         data = msg.get("data", "")
         if data:
-            self.after(0, lambda: self._term_append(data))
+            self.after(0, lambda: self._term_feed(data))
 
-    def _term_append(self, data):
+    def _term_feed(self, data):
         t = self._term_text
         if not (t and self._term_win and self._term_win.winfo_exists()): return
-        # Strip escape sequences but keep \t \n \r, then apply carriage returns:
-        # a lone \r rewrites the current line (how shells redraw prompts/input).
-        clean = self._ANSI_RE.sub("", data)
-        t.config(state="normal")
-        for part in re.split(r"(\r\n|\r|\n)", clean):
-            if part == "\r":
-                t.delete("end-1c linestart", "end-1c")     # overwrite current line
-            elif part in ("\n", "\r\n"):
-                t.insert("end", "\n")
-            elif part:
-                t.insert("end", part)
-        t.see("end")
-        if int(t.index("end-1c").split(".")[0]) > 6000:    # cap the scrollback
+        i, n = 0, len(data)
+        while i < n:
+            c = data[i]
+            if c == "\x1b":
+                i += self._term_escape(data, i); continue
+            if c == "\r":
+                self._t_col = 0; i += 1
+            elif c == "\n":
+                self._term_newline(); i += 1
+            elif c == "\b":
+                self._t_col = max(0, self._t_col - 1); i += 1
+            elif c == "\t":
+                self._t_col = (self._t_col // 8 + 1) * 8; i += 1
+            elif c < " " or c == "\x7f":
+                i += 1                                   # bell / other control: ignore
+            else:
+                j = i
+                while j < n and data[j] >= " " and data[j] != "\x7f" and data[j] != "\x1b":
+                    j += 1
+                self._term_write(data[i:j]); i = j
+        t.mark_set("insert", f"{self._t_row}.{self._t_col}")
+        t.see("insert")
+        if int(t.index("end-1c").split(".")[0]) > 6000:
             t.delete("1.0", "1500.0")
-        t.config(state="disabled")
+            self._t_row = max(1, self._t_row - 1500)
+
+    def _term_rowlen(self, row):
+        return int(self._term_text.index(f"{row}.end").split(".")[1])
+
+    def _term_write(self, s):
+        t = self._term_text
+        last = int(t.index("end-1c").split(".")[0])
+        if self._t_row > last:
+            t.insert("end", "\n" * (self._t_row - last))
+        ll = self._term_rowlen(self._t_row)
+        tag = (self._t_tag,) if self._t_tag else ()
+        if self._t_col >= ll:                            # append (fast path)
+            if self._t_col > ll:
+                t.insert(f"{self._t_row}.end", " " * (self._t_col - ll))
+            t.insert(f"{self._t_row}.{self._t_col}", s, tag); self._t_col += len(s)
+        else:                                            # overwrite within the line
+            for ch in s:
+                if self._t_col < self._term_rowlen(self._t_row):
+                    t.delete(f"{self._t_row}.{self._t_col}", f"{self._t_row}.{self._t_col+1}")
+                t.insert(f"{self._t_row}.{self._t_col}", ch, tag); self._t_col += 1
+
+    def _term_newline(self):
+        t = self._term_text
+        if self._t_row >= int(t.index("end-1c").split(".")[0]):
+            t.insert("end", "\n")
+        self._t_row += 1
+
+    def _term_escape(self, data, i):
+        n = len(data)
+        if i + 1 >= n: return 1
+        c = data[i + 1]
+        if c == "[":                                     # CSI
+            j = i + 2; params = ""
+            while j < n and data[j] in "0123456789;?":
+                params += data[j]; j += 1
+            if j >= n: return n - i
+            self._term_csi(params, data[j]); return j - i + 1
+        if c == "]":                                     # OSC, ends with BEL or ST
+            j = i + 2
+            while j < n:
+                if data[j] == "\x07": return j + 1 - i
+                if data[j] == "\x1b" and j + 1 < n and data[j+1] == "\\": return j + 2 - i
+                j += 1
+            return n - i
+        return 2                                         # other 2-char escape
+
+    def _term_csi(self, params, final):
+        t = self._term_text; row = self._t_row
+        nums = [int(x) for x in params.split(";") if x.isdigit()]
+        a = nums[0] if nums else 0
+        if final == "m":
+            self._term_sgr(nums)
+        elif final == "K":                               # erase in line
+            if a == 0:   t.delete(f"{row}.{self._t_col}", f"{row}.end")
+            elif a == 1: t.delete(f"{row}.0", f"{row}.{self._t_col}")
+            elif a == 2: t.delete(f"{row}.0", f"{row}.end")
+        elif final == "P":                               # delete chars
+            cnt = max(1, a); ll = self._term_rowlen(row)
+            t.delete(f"{row}.{self._t_col}", f"{row}.{min(ll, self._t_col + cnt)}")
+        elif final == "@":                               # insert blanks
+            t.insert(f"{row}.{self._t_col}", " " * max(1, a))
+        elif final == "C":
+            self._t_col += max(1, a)
+        elif final == "D":
+            self._t_col = max(0, self._t_col - max(1, a))
+        elif final == "G":
+            self._t_col = max(0, a - 1)
+
+    def _term_sgr(self, nums):
+        i = 0
+        if not nums: nums = [0]
+        while i < len(nums):
+            v = nums[i]
+            if v == 0:   self._t_fg = None; self._t_bold = False
+            elif v == 1: self._t_bold = True
+            elif v == 22: self._t_bold = False
+            elif 30 <= v <= 37: self._t_fg = v - 30
+            elif v == 39: self._t_fg = None
+            elif 90 <= v <= 97: self._t_fg = v - 90 + 8
+            elif v == 38 and i + 2 < len(nums) and nums[i+1] == 5:
+                self._t_fg = nums[i+2] if nums[i+2] < 16 else None; i += 2
+            i += 1
+        if self._t_fg is None:
+            self._t_tag = ""
+        else:
+            idx = self._t_fg + (8 if self._t_bold and self._t_fg < 8 else 0)
+            self._t_tag = f"fg{idx}"
 
     def _close_terminal(self):
         if self.conn.connected:
