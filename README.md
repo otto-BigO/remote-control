@@ -4,7 +4,7 @@ A LAN remote-desktop tool in Python and Tkinter. A GUI **client** connects to a
 **server** on another machine and mirrors its screen, mouse, and keyboard. The
 client runs on macOS; the server runs on macOS, Linux/X11, or Windows.
 
-## Download (no Python needed)
+## Download
 
 Prebuilt builds are on the
 [Releases](https://github.com/otto-BigO/remote-control/releases) page. Each
@@ -127,4 +127,4 @@ connects with the password. Run it on trusted LANs only, set a strong
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT - See [LICENSE](LICENSE).
